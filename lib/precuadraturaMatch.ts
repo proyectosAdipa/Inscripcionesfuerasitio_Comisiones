@@ -237,10 +237,32 @@ export async function compararMes(mes: string): Promise<ResultadoComparacion> {
     }
   }
 
+  // Unión de vendedoras: las que tienen ventas en la app y/o datos en el Panel (BigQuery) para este mes.
+  // Antes solo se listaban las que tenían ventas en 'ventas', así que una vendedora con datos reales
+  // en el Panel pero 0 ventas registradas en la app (el caso normal hoy, recién arrancando) no aparecía.
+  const vendedoraIdsUnion = new Set<string>(acumuladorPorVendedora.keys())
+  const nombresConDatosPanel = new Set<string>([
+    ...sumaDetallePorVendedora.keys(),
+    ...swMontoPorVendedora.keys(),
+  ])
+  for (const claveNombre of nombresConDatosPanel) {
+    const vendedora = vendedorasPorNombreNormalizado.get(claveNombre)
+    if (vendedora) vendedoraIdsUnion.add(vendedora.id)
+  }
+
+  const desgloseVacio = { individual: { cantidad: 0, monto: 0 }, empresa: { cantidad: 0, monto: 0 } }
+
   const porVendedora: ResumenVendedora[] = []
-  for (const [vendedoraId, acc] of acumuladorPorVendedora) {
+  for (const vendedoraId of vendedoraIdsUnion) {
     const vendedora = vendedorasPorId.get(vendedoraId)
     if (!vendedora) continue
+
+    const acc = acumuladorPorVendedora.get(vendedoraId) ?? {
+      monto_app: 0,
+      cantidad_ventas: 0,
+      cantidad_canceladas: 0,
+      desglose_tipo: desgloseVacio,
+    }
 
     const claveNombre = normalizarNombre(vendedora.nombre)
     const montoBigquery = sumaDetallePorVendedora.get(claveNombre) ?? 0
