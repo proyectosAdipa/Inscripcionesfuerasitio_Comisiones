@@ -483,7 +483,7 @@ flowchart TD
 | `/cuadratura-defontana` | Segunda etapa de cuadratura | Cierre, Admin |
 | `/comisiones` | Cálculo de comisión por vendedora | Admin |
 | `/archivo/[mes]` | Vista de un mes archivado (snapshot) | Cierre, Admin |
-| `/configuracion` | Gestión de vendedoras y programas | Admin |
+| `/configuracion` | Gestión de vendedoras y programas. Incluye carga manual del Excel de Defontana (matching de `id_defontana` por nombre, resolución de ambiguos eligiendo el candidato correcto, y listado de programas de Chile aún sin `id_defontana` para asignarlo a mano) | Cierre, Admin |
 | `/usuarios` | Gestión de usuarios y roles | Admin |
 | `/perfil` | Perfil y cambio de contraseña | Todos |
 
@@ -511,8 +511,7 @@ flowchart TD
 | GET | `/api/vendedora/descuadres` | Descuadres de una vendedora |
 | POST | `/api/corregir` | Edición de monto, enlace manual o marcar revisado |
 | GET | `/api/comisiones` | Cálculo de comisiones (solo Admin) |
-| GET | `/api/cuadratura-defontana` | Cuadratura de programas mayores (por definir) |
-| POST | `/api/defontana/subir-excel` | Carga del Excel de Defontana (por definir) |
+| GET | `/api/cuadratura-defontana` | Cuadratura de programas mayores contra Defontana (por definir — pendiente, distinto de la carga de `id_defontana` ya implementada en `/configuracion`) |
 | GET | `/api/archivo/[mes]` | Lee el snapshot de un mes archivado |
 
 ### Sincronización y mantenimiento
@@ -521,6 +520,9 @@ flowchart TD
 |---|---|---|---|
 | POST | `/api/sync/programas` | Recibe el listado de programas (CL/MX/CO) enviado por un flujo de n8n que consulta BigQuery; hace upsert y desactiva los que no vienen | CRON_SECRET |
 | POST | `/api/sync/defontana` | Recibe `{ id_servicio, descripcion }[]` desde n8n (hoja de Sheets de Defontana, solo aplica a CL); matchea por nombre normalizado y guarda `id_defontana`. Ambiguos o sin match quedan en `sync_log` para revisión manual | CRON_SECRET |
+| POST | `/api/configuracion/defontana/upload` | Carga manual del Excel de Defontana desde `/configuracion` (columnas "ID Servicio" y "Descripción", parseado con `exceljs`). Misma lógica de matching que `/api/sync/defontana`; devuelve el resultado directo a la UI en vez de solo loguearlo | Sesión (rol Cierre/Admin) |
+| GET | `/api/configuracion/defontana/pendientes` | Lista, agrupados por nombre normalizado, los programas activos de Chile que aún no tienen `id_defontana` | Sesión (rol Cierre/Admin) |
+| POST | `/api/configuracion/defontana/asignar` | Asigna manualmente un `id_defontana` a un grupo de programas (todas las filas de Chile con ese nombre). Usado tanto por la lista de pendientes como al resolver un caso ambiguo eligiendo el candidato correcto | Sesión (rol Cierre/Admin) |
 | POST | `/api/sync/panel` | Sync de totales del Panel desde n8n | CRON_SECRET |
 | POST | `/api/sync/panel-detalle` | Sync del detalle del Panel + rellena boletas | CRON_SECRET |
 | POST | `/api/sync/forzar` | Actualización inmediata del Panel | Auth |
@@ -579,9 +581,9 @@ Una vendedora entra, registra una venta con su(s) programa(s), pago, comprobante
 | Número de boleta | Confirmado: sale del campo `Voucher_defontana` en BigQuery, vía sync del Panel | ✅ Resuelto |
 | Endpoint por país | `enrollment-offsite` confirmado para MX y CL; confirmar la URL de CO | TI |
 | Porcentaje de comisión | Confirmar si es fijo por vendedora o varía por programa/país | Joice / Nico |
-| Excel de Defontana | Formato del archivo y campos para el match | Joice |
-| IDs de Defontana | Listado de `id_defontana` por programa | Joice |
-| API de Defontana | Confirmar si existe consulta automática | Joice |
+| Excel de Defontana | Formato confirmado (columnas "ID Servicio" y "Descripción"). Carga manual implementada en `/configuracion`, con matching por nombre y resolución de ambiguos | ✅ Resuelto |
+| IDs de Defontana | En curso: se van cargando por programa vía `/configuracion`, tanto por carga masiva del Excel como asignación manual una por una | Joice |
+| API de Defontana | Confirmar si existe consulta automática (afecta solo la cuadratura de programas >$100.000, sección 5.6 — no bloquea la carga de `id_defontana` ya construida) | Joice |
 | Conexión a Drive | Carpeta y método de respaldo de PDFs | Gonzalo |
 | Coordinación rediseño TI | El proceso de inscripciones está siendo reestructurado (Nicolás / Dylan / HubSpot, full automático). Alinear con Matías antes de implementar el Frente 2 para no construir sobre algo que va a cambiar. | Gonzalo / Matías |
 
