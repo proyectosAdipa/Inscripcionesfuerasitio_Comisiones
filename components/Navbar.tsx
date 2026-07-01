@@ -26,6 +26,7 @@ export default function Navbar({ rol, nombre }: NavbarProps) {
     { href: '/registro/historial', label: 'Mis ventas', roles: ['vendedora', 'admin'] },
     { href: '/reinscripciones', label: 'Nueva reinscripción', roles: ['sac', 'admin'] },
     { href: '/reinscripciones/historial', label: 'Reinscripciones', roles: ['sac', 'admin'] },
+    { href: '/configuracion', label: 'Configuración', roles: ['cierre', 'admin'] },
   ]
 
   const visible = links.filter(l => l.roles.includes(rol))
