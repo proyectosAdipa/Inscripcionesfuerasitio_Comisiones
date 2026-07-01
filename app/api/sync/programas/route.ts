@@ -20,6 +20,30 @@ function normalizarPais(valor: string): Pais | null {
   return PAIS_MAP[valor.trim().toLowerCase()] ?? null
 }
 
+const TIPOS_POR_PALABRA_CLAVE: [string, string][] = [
+  ['diplomado', 'Diplomado'],
+  ['especializacion', 'Especialización'],
+  ['sesion magistral', 'Sesión Magistral'],
+  ['acreditacion', 'Acreditación'],
+  ['congreso', 'Congreso'],
+  ['certificacion', 'Certificación'],
+  ['masterclass', 'Masterclass'],
+]
+
+function quitarTildes(texto: string): string {
+  return texto.normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+function detectarTipo(nombrePrograma: string): string {
+  const nombreNormalizado = quitarTildes(nombrePrograma).toLowerCase()
+
+  for (const [palabraClave, tipo] of TIPOS_POR_PALABRA_CLAVE) {
+    if (nombreNormalizado.includes(palabraClave)) return tipo
+  }
+
+  return 'Curso'
+}
+
 function checkAuth(req: NextRequest): boolean {
   const auth = req.headers.get('authorization')
   return auth === `Bearer ${process.env.CRON_SECRET}`
@@ -80,17 +104,19 @@ async function ejecutarSync(filas: FilaPrograma[]) {
         .eq('vendedora_id', vendedoraId)
         .maybeSingle()
 
+      const tipo = detectarTipo(fila.product_name)
+
       if (existente) {
         await service
           .from('programas')
-          .update({ nombre: fila.product_name, pais, activo: true })
+          .update({ nombre: fila.product_name, tipo, pais, activo: true })
           .eq('id', existente.id)
         actualizados++
       } else {
         await service.from('programas').insert({
           wp_post_id: String(fila.product_id),
           nombre: fila.product_name,
-          tipo: 'curso',
+          tipo,
           vendedora_id: vendedoraId,
           pais,
           activo: true,
