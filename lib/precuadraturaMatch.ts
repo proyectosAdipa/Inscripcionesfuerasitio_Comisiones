@@ -23,15 +23,22 @@ export interface VentaClasificada {
   panel: PanelDetalleRef | null
 }
 
+export interface DesgloseTipo {
+  cantidad: number
+  monto: number
+}
+
 export interface ResumenVendedora {
   vendedora_id: string
   nombre: string
   pais: Pais
+  monto_sitio_web: number
+  monto_bigquery: number
+  cantidad_bigquery: number
   monto_app: number
   cantidad_ventas: number
   cantidad_canceladas: number
-  monto_panel: number
-  cantidad_panel: number
+  desglose_tipo: { individual: DesgloseTipo; empresa: DesgloseTipo }
   delta: number
   estado: 'Cuadra' | 'Descuadra'
   aviso_integridad: string | null
@@ -92,6 +99,7 @@ export async function compararMes(mes: string): Promise<ResultadoComparacion> {
     programa: string
     correo_cliente: string
     vendedora: string
+    categoria: string
   }
 
   const panelPorNumeroOrden = new Map<string, PanelDetalleRow>()
@@ -156,23 +164,31 @@ export async function compararMes(mes: string): Promise<ResultadoComparacion> {
     })
   }
 
-  // Validación de integridad: resumen (ventas_panel) vs suma del detalle en wc-completed, por (vendedora, mes)
+  // Columna 2 (Fuera de Sitio — BigQuery): suma del detalle (sw_auto + sw_no_auto) en wc-completed, por vendedora
   const sumaDetallePorVendedora = new Map<string, number>()
+  const cantidadDetallePorVendedora = new Map<string, number>()
   for (const p of (panelDetalle ?? []) as PanelDetalleRow[]) {
     if (p.ultimo_estado !== 'wc-completed') continue
+    if (p.categoria !== 'sw_auto' && p.categoria !== 'sw_no_auto') continue
     const clave = normalizarNombre(p.vendedora)
     sumaDetallePorVendedora.set(clave, (sumaDetallePorVendedora.get(clave) ?? 0) + p.monto)
+    cantidadDetallePorVendedora.set(clave, (cantidadDetallePorVendedora.get(clave) ?? 0) + 1)
   }
 
   interface PanelResumenRow {
     vendedora: string
+    sw_monto: number
     sw_auto_monto: number
     sw_no_auto_monto: number
   }
 
+  // Validación de integridad interna del sync (resumen vs. detalle) — NO es el descuadre de la vendedora
   const avisoIntegridadPorVendedora = new Map<string, string>()
+  const swMontoPorVendedora = new Map<string, number>()
   for (const r of (panelResumen ?? []) as PanelResumenRow[]) {
     const clave = normalizarNombre(r.vendedora)
+    swMontoPorVendedora.set(clave, (swMontoPorVendedora.get(clave) ?? 0) + (r.sw_monto ?? 0))
+
     const totalResumen = (r.sw_auto_monto ?? 0) + (r.sw_no_auto_monto ?? 0)
     const totalDetalle = sumaDetallePorVendedora.get(clave) ?? 0
     const diferencia = totalResumen - totalDetalle
@@ -184,17 +200,28 @@ export async function compararMes(mes: string): Promise<ResultadoComparacion> {
     }
   }
 
-  // Agrupación por vendedora (excluye origen sac)
+  // Columna 3 (Fuera de Sitio — App): agrupación por vendedora (excluye origen sac), con desglose por tipo
+  interface VentaRowConTipo extends VentaRow { tipo?: string }
+  const ventasPorId = new Map<string, VentaRowConTipo>(
+    ((ventas ?? []) as VentaRowConTipo[]).map(v => [v.id, v])
+  )
+
   const acumuladorPorVendedora = new Map<string, {
     monto_app: number
     cantidad_ventas: number
     cantidad_canceladas: number
+    desglose_tipo: { individual: DesgloseTipo; empresa: DesgloseTipo }
   }>()
 
   for (const vc of ventasClasificadas) {
     if (vc.origen === 'sac' || !vc.vendedora_id) continue
     if (!acumuladorPorVendedora.has(vc.vendedora_id)) {
-      acumuladorPorVendedora.set(vc.vendedora_id, { monto_app: 0, cantidad_ventas: 0, cantidad_canceladas: 0 })
+      acumuladorPorVendedora.set(vc.vendedora_id, {
+        monto_app: 0,
+        cantidad_ventas: 0,
+        cantidad_canceladas: 0,
+        desglose_tipo: { individual: { cantidad: 0, monto: 0 }, empresa: { cantidad: 0, monto: 0 } },
+      })
     }
     const acc = acumuladorPorVendedora.get(vc.vendedora_id)!
     if (vc.resultado === 'cancelada') {
@@ -202,6 +229,11 @@ export async function compararMes(mes: string): Promise<ResultadoComparacion> {
     } else {
       acc.monto_app += vc.monto_total
       acc.cantidad_ventas++
+
+      const tipo = ventasPorId.get(vc.venta_id)?.tipo
+      const bucket = tipo === 'empresa' ? acc.desglose_tipo.empresa : acc.desglose_tipo.individual
+      bucket.cantidad++
+      bucket.monto += vc.monto_total
     }
   }
 
@@ -211,21 +243,22 @@ export async function compararMes(mes: string): Promise<ResultadoComparacion> {
     if (!vendedora) continue
 
     const claveNombre = normalizarNombre(vendedora.nombre)
-    const montoPanel = sumaDetallePorVendedora.get(claveNombre) ?? 0
-    const cantidadPanel = (panelDetalle ?? []).filter(
-      (p: PanelDetalleRow) => normalizarNombre(p.vendedora) === claveNombre && p.ultimo_estado === 'wc-completed'
-    ).length
-    const delta = acc.monto_app - montoPanel
+    const montoBigquery = sumaDetallePorVendedora.get(claveNombre) ?? 0
+    const cantidadBigquery = cantidadDetallePorVendedora.get(claveNombre) ?? 0
+    const montoSitioWeb = swMontoPorVendedora.get(claveNombre) ?? 0
+    const delta = montoBigquery - acc.monto_app
 
     porVendedora.push({
       vendedora_id: vendedoraId,
       nombre: vendedora.nombre,
       pais: vendedora.pais,
+      monto_sitio_web: montoSitioWeb,
+      monto_bigquery: montoBigquery,
+      cantidad_bigquery: cantidadBigquery,
       monto_app: acc.monto_app,
       cantidad_ventas: acc.cantidad_ventas,
       cantidad_canceladas: acc.cantidad_canceladas,
-      monto_panel: montoPanel,
-      cantidad_panel: cantidadPanel,
+      desglose_tipo: acc.desglose_tipo,
       delta,
       estado: Math.abs(delta) < EPSILON ? 'Cuadra' : 'Descuadra',
       aviso_integridad: avisoIntegridadPorVendedora.get(claveNombre) ?? null,

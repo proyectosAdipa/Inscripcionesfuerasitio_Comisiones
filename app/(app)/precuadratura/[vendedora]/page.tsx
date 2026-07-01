@@ -29,8 +29,9 @@ interface DrillDownResponse {
   nombre: string
   pais: string | null
   resumen: {
+    monto_sitio_web: number
+    monto_bigquery: number
     monto_app: number
-    monto_panel: number
     delta: number
     cantidad_ventas: number
     cantidad_canceladas: number
@@ -107,17 +108,24 @@ export default function PrecuadraturaVendedoraPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               {data.resumen.aviso_integridad && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 mb-4">
-                  <p className="text-sm text-amber-700">⚠ {data.resumen.aviso_integridad}</p>
+                  <p className="text-sm text-amber-700">
+                    ⚠ {data.resumen.aviso_integridad}
+                    <span className="text-amber-600"> (chequeo interno del sync del Panel, no es el descuadre de la vendedora)</span>
+                  </p>
                 </div>
               )}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
                 <div>
-                  <p className="text-lg font-semibold text-gray-900">${data.resumen.monto_app?.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500">Monto App</p>
+                  <p className="text-lg font-semibold text-gray-900">${data.resumen.monto_sitio_web?.toLocaleString()}</p>
+                  <p className="text-xs text-gray-500">Sitio Web</p>
                 </div>
                 <div>
-                  <p className="text-lg font-semibold text-gray-900">${data.resumen.monto_panel?.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500">Monto Panel</p>
+                  <p className="text-lg font-semibold text-gray-900">${data.resumen.monto_bigquery?.toLocaleString()}</p>
+                  <p className="text-xs text-gray-500">Fuera de Sitio — BigQuery</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold text-gray-900">${data.resumen.monto_app?.toLocaleString()}</p>
+                  <p className="text-xs text-gray-500">Fuera de Sitio — App</p>
                 </div>
                 <div>
                   <p className={`text-lg font-semibold ${data.resumen.delta === 0 ? 'text-gray-900' : 'text-red-600'}`}>

@@ -3,23 +3,32 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
+interface DesgloseTipo {
+  cantidad: number
+  monto: number
+}
+
 interface VendedoraResumen {
   vendedora_id: string
   nombre: string
   pais: string
+  monto_sitio_web: number
+  monto_bigquery: number
+  cantidad_bigquery: number
   monto_app: number
   cantidad_ventas: number
   cantidad_canceladas: number
-  monto_panel: number
-  cantidad_panel: number
+  desglose_tipo: { individual: DesgloseTipo; empresa: DesgloseTipo }
   delta: number
   estado: 'Cuadra' | 'Descuadra'
   aviso_integridad: string | null
 }
 
 interface PorPais {
+  total_sitio_web: number
+  total_bigquery: number
   total_app: number
-  total_panel: number
+  total_delta: number
   vendedoras: VendedoraResumen[]
 }
 
@@ -32,6 +41,20 @@ interface PrecuadraturaResponse {
 function mesActualDefault(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function TooltipDesglose({ desglose }: { desglose: VendedoraResumen['desglose_tipo'] }) {
+  return (
+    <div className="group relative inline-block">
+      <span className="cursor-help border-b border-dotted border-gray-400">
+        {desglose.individual.cantidad + desglose.empresa.cantidad}
+      </span>
+      <div className="invisible group-hover:visible absolute z-10 left-1/2 -translate-x-1/2 bottom-full mb-1 w-56 bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg">
+        <p>Individual: {desglose.individual.cantidad} ventas · ${desglose.individual.monto.toLocaleString()}</p>
+        <p>Empresa: {desglose.empresa.cantidad} ventas · ${desglose.empresa.monto.toLocaleString()}</p>
+      </div>
+    </div>
+  )
 }
 
 export default function PrecuadraturaPage() {
@@ -72,7 +95,7 @@ export default function PrecuadraturaPage() {
   const paises = data ? Object.keys(data.por_pais).sort() : []
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Precuadratura</h1>
         <input
@@ -97,16 +120,16 @@ export default function PrecuadraturaPage() {
         <div className="space-y-6">
           {paises.map(pais => {
             const grupo = data.por_pais[pais]
-            const deltaPais = grupo.total_app - grupo.total_panel
             return (
               <div key={pais} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="bg-gray-50 px-5 py-3 flex items-center justify-between border-b border-gray-200">
                   <h2 className="text-sm font-semibold text-gray-900">{pais}</h2>
                   <div className="flex gap-4 text-xs text-gray-600">
-                    <span>App: <strong className="text-gray-900">${grupo.total_app.toLocaleString()}</strong></span>
-                    <span>Panel: <strong className="text-gray-900">${grupo.total_panel.toLocaleString()}</strong></span>
-                    <span className={deltaPais === 0 ? 'text-green-600' : 'text-red-600'}>
-                      Δ ${deltaPais.toLocaleString()}
+                    <span>Sitio Web: <strong className="text-gray-900">${grupo.total_sitio_web.toLocaleString()}</strong></span>
+                    <span>Fuera de Sitio (BigQuery): <strong className="text-gray-900">${grupo.total_bigquery.toLocaleString()}</strong></span>
+                    <span>Fuera de Sitio (App): <strong className="text-gray-900">${grupo.total_app.toLocaleString()}</strong></span>
+                    <span className={grupo.total_delta === 0 ? 'text-green-600' : 'text-red-600'}>
+                      Δ ${grupo.total_delta.toLocaleString()}
                     </span>
                   </div>
                 </div>
@@ -115,10 +138,10 @@ export default function PrecuadraturaPage() {
                   <thead>
                     <tr className="text-gray-500 text-xs">
                       <th className="text-left px-5 py-2 font-medium">Vendedora</th>
-                      <th className="text-right px-3 py-2 font-medium">Monto App</th>
-                      <th className="text-right px-3 py-2 font-medium">Monto Panel</th>
+                      <th className="text-right px-3 py-2 font-medium">Sitio Web</th>
+                      <th className="text-right px-3 py-2 font-medium">Fuera de Sitio — BigQuery</th>
+                      <th className="text-right px-3 py-2 font-medium">Fuera de Sitio — App</th>
                       <th className="text-right px-3 py-2 font-medium">Δ</th>
-                      <th className="text-right px-3 py-2 font-medium">Ventas</th>
                       <th className="text-right px-3 py-2 font-medium">Canceladas</th>
                       <th className="text-left px-3 py-2 font-medium">Estado</th>
                       <th className="px-3 py-2"></th>
@@ -129,16 +152,27 @@ export default function PrecuadraturaPage() {
                       <tr key={v.vendedora_id} className="border-t border-gray-100 hover:bg-gray-50 transition">
                         <td className="px-5 py-2.5">
                           <p className="text-gray-900">{v.nombre}</p>
-                          {v.aviso_integridad && (
-                            <p className="text-xs text-amber-600 mt-0.5">⚠ {v.aviso_integridad}</p>
-                          )}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-gray-700">${v.monto_app.toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-700">${v.monto_panel.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-500">${v.monto_sitio_web.toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">
+                          <div className="flex items-center justify-end gap-1">
+                            ${v.monto_bigquery.toLocaleString()}
+                            {v.aviso_integridad && (
+                              <span className="cursor-help text-amber-500" title={`${v.aviso_integridad} (chequeo interno del sync del Panel, no es el descuadre de la vendedora)`}>
+                                ⚠
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">
+                          <div className="flex items-center justify-end gap-1.5">
+                            ${v.monto_app.toLocaleString()}
+                            <TooltipDesglose desglose={v.desglose_tipo} />
+                          </div>
+                        </td>
                         <td className={`px-3 py-2.5 text-right ${v.delta === 0 ? 'text-gray-500' : 'text-red-600'}`}>
                           ${v.delta.toLocaleString()}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-gray-500">{v.cantidad_ventas}</td>
                         <td className="px-3 py-2.5 text-right text-gray-500">{v.cantidad_canceladas}</td>
                         <td className="px-3 py-2.5">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${

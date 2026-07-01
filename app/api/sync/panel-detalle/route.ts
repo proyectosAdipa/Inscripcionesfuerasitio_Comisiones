@@ -64,6 +64,7 @@ async function ejecutarSync(filas: FilaPanelDetalle[]) {
       .from('ventas_panel_detalle')
       .select('id')
       .eq('numero_orden', fila.numero_orden)
+      .eq('wp_post_id', fila.wp_post_id)
       .maybeSingle()
 
     if (existente) {

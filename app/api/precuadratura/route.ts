@@ -28,15 +28,21 @@ export async function GET(req: NextRequest) {
   const resultado = await compararMes(mes)
 
   const porPais: Record<string, {
+    total_sitio_web: number
+    total_bigquery: number
     total_app: number
-    total_panel: number
+    total_delta: number
     vendedoras: typeof resultado.porVendedora
   }> = {}
 
   for (const v of resultado.porVendedora) {
-    if (!porPais[v.pais]) porPais[v.pais] = { total_app: 0, total_panel: 0, vendedoras: [] }
+    if (!porPais[v.pais]) {
+      porPais[v.pais] = { total_sitio_web: 0, total_bigquery: 0, total_app: 0, total_delta: 0, vendedoras: [] }
+    }
+    porPais[v.pais].total_sitio_web += v.monto_sitio_web
+    porPais[v.pais].total_bigquery += v.monto_bigquery
     porPais[v.pais].total_app += v.monto_app
-    porPais[v.pais].total_panel += v.monto_panel
+    porPais[v.pais].total_delta += v.delta
     porPais[v.pais].vendedoras.push(v)
   }
 

@@ -478,7 +478,7 @@ flowchart TD
 | `/reinscripciones` | Formulario de nueva reinscripción | SAC, Admin |
 | `/reinscripciones/historial` | Reinscripciones registradas | SAC, Admin |
 | `/venta/[id]` | Detalle de una venta con sus inscritos | Según permiso |
-| `/precuadratura` | Tabla principal del cierre: monto App vs Panel, Δ, cantidad de ventas y canceladas por vendedora, agrupado por país. Incluye grupo aparte para SAC (no atribuidas) | Cierre, Admin |
+| `/precuadratura` | Tabla principal del cierre, agrupada por país: **Sitio Web** (informativo, no se compara), **Fuera de Sitio — BigQuery** (con ⚠ si no coincide con el resumen del sync), **Fuera de Sitio — App** (tooltip con desglose Individual/Empresa), y **Δ** = BigQuery − App (define Cuadra/Descuadra). Incluye grupo aparte para SAC (no atribuidas) | Cierre, Admin |
 | `/precuadratura/[vendedora]` | Drill-down venta por venta de una vendedora (o `sac` para las no atribuidas), con la clasificación de cada una (Cuadra / Descuadre de monto / Solo en un lado / Cancelada). Las correcciones manuales (edición de monto, enlace manual, marcar revisado) quedan pendientes para una siguiente etapa | Cierre, Admin |
 | `/cuadratura-defontana` | Segunda etapa de cuadratura | Cierre, Admin |
 | `/comisiones` | Cálculo de comisión por vendedora | Admin |
@@ -506,7 +506,7 @@ flowchart TD
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/precuadratura?mes=YYYY-MM` | Agrupa por país → vendedora: monto App vs monto Panel (detalle, `wc-completed`), Δ, cantidad de ventas, canceladas, estado (Cuadra/Descuadra) y aviso de integridad resumen-vs-detalle si aplica. Incluye grupo SAC aparte |
+| GET | `/api/precuadratura?mes=YYYY-MM` | Agrupa por país → vendedora con 4 columnas: `monto_sitio_web` (informativo), `monto_bigquery` (detalle `wc-completed`, `sw_auto`+`sw_no_auto`), `monto_app` (con `desglose_tipo` individual/empresa), y `delta` = bigquery − app (define Cuadra/Descuadra). `aviso_integridad` es un campo aparte (chequeo interno resumen-vs-detalle, no es el descuadre). Incluye grupo SAC aparte |
 | GET | `/api/vendedora/[id]/ventas?mes=YYYY-MM` | Detalle venta por venta de una vendedora (`[id]` = UUID) o de las no atribuidas (`[id]` = `sac`), cada una clasificada. El descuadre por vendedora ya viene incluido acá y en `/api/precuadratura` — no hay endpoint separado |
 | POST | `/api/corregir` | Edición de monto, enlace manual o marcar revisado |
 | GET | `/api/comisiones` | Cálculo de comisiones (solo Admin) |
@@ -523,7 +523,7 @@ flowchart TD
 | GET | `/api/configuracion/defontana/pendientes` | Lista, agrupados por nombre normalizado, los programas activos de Chile que aún no tienen `id_defontana` | Sesión (rol Cierre/Admin) |
 | POST | `/api/configuracion/defontana/asignar` | Asigna manualmente un `id_defontana` a un grupo de programas (todas las filas de Chile con ese nombre). Usado tanto por la lista de pendientes como al resolver un caso ambiguo eligiendo el candidato correcto | Sesión (rol Cierre/Admin) |
 | POST | `/api/sync/panel` | Recibe totales por vendedora/mes/país (`ventas_sw_monto`, `ventas_sw_auto_monto`, `ventas_sw_no_auto_monto`, y sus cantidades) enviados por n8n; upsert en `ventas_panel` por `(vendedora, mes, pais)` | CRON_SECRET |
-| POST | `/api/sync/panel-detalle` | Recibe el detalle venta por venta (fuera de sitio, `SW_Auto`/`SW_no_auto`) enviado por n8n; upsert en `ventas_panel_detalle` por `numero_orden`. Efectos secundarios: rellena `ventas.numero_boleta` desde `voucher`, y marca `ventas.estado_inscripcion = 'cancelado'` cuando `ultimo_estado = 'wc-cancelled'` | CRON_SECRET |
+| POST | `/api/sync/panel-detalle` | Recibe el detalle venta por venta (fuera de sitio, `SW_Auto`/`SW_no_auto`) enviado por n8n; upsert en `ventas_panel_detalle` por **`(numero_orden, wp_post_id)`** — una orden de WooCommerce puede traer más de un producto en el carrito, y cada línea es una fila distinta. Efectos secundarios: rellena `ventas.numero_boleta` desde `voucher`, y marca `ventas.estado_inscripcion = 'cancelado'` cuando `ultimo_estado = 'wc-cancelled'` | CRON_SECRET |
 | POST | `/api/sync/forzar` | Actualización inmediata del Panel | Auth |
 | GET/POST | `/api/ciclos/rotar` | Rotación de mes + genera snapshot + respalda PDFs | CRON_SECRET |
 | GET | `/api/programas` | Listado de programas por vendedora | Auth |
@@ -595,7 +595,9 @@ ORDER BY Seller_name, fecha DESC
 
 ### 10.2 Validación de integridad (resumen vs. detalle)
 
-Por cada `(vendedora, mes)`, `/api/precuadratura` compara `ventas_panel.sw_auto_monto + ventas_panel.sw_no_auto_monto` (resumen) contra la suma de `ventas_panel_detalle.monto` filtrado por `ultimo_estado = 'wc-completed'` (detalle). Si difieren, se muestra un aviso visible en la fila de esa vendedora (ej. *"⚠ Panel resumen y detalle no coinciden: diferencia $X"*) — no bloquea nada, es solo una alerta de integridad del sync. El monto usado para el Δ contra `ventas` es siempre el del **detalle**, no el del resumen.
+Por cada `(vendedora, mes)`, `/api/precuadratura` compara `ventas_panel.sw_auto_monto + ventas_panel.sw_no_auto_monto` (resumen) contra la suma de `ventas_panel_detalle.monto` filtrado por `ultimo_estado = 'wc-completed'` (detalle). Si difieren, se muestra un aviso ⚠ junto a la columna "Fuera de Sitio — BigQuery" de esa vendedora — no bloquea nada, es solo una alerta de integridad **interna del sync del Panel** (BigQuery contra BigQuery), completamente distinta del Δ (que es BigQuery contra la app). El monto usado para el Δ contra `ventas` es siempre el del **detalle**, no el del resumen.
+
+> **Nota histórica:** el 1 de julio de 2026 se detectó y corrigió un bug donde `/api/sync/panel-detalle` usaba solo `numero_orden` como clave de conflicto del upsert. Cuando una orden de WooCommerce traía más de un producto (ej. un Masterclass gratis + un curso pagado en el mismo carrito), llegaban 2+ líneas con el mismo `numero_orden` y la segunda pisaba a la primera, perdiéndose una venta real — esto explicaba discrepancias reales en la validación de integridad de algunas vendedoras. Corregido usando `(numero_orden, wp_post_id)` como clave compuesta.
 
 ---
 
