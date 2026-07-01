@@ -25,9 +25,8 @@ const TIPOS_POR_PALABRA_CLAVE: [string, string][] = [
   ['especializacion', 'Especialización'],
   ['sesion magistral', 'Sesión Magistral'],
   ['acreditacion', 'Acreditación'],
+  ['certificacion', 'Acreditación'],
   ['congreso', 'Congreso'],
-  ['certificacion', 'Certificación'],
-  ['masterclass', 'Masterclass'],
 ]
 
 function quitarTildes(texto: string): string {
