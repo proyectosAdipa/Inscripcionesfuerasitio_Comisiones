@@ -1,6 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { ENROLLMENT_URL, Pais } from '@/lib/types'
+import { ENROLLMENT_URL, Pais, MARCADOR_INSCRIPCION_DESACTIVADA, inscripcionAutomaticaActiva } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -10,9 +10,40 @@ export async function POST(req: NextRequest) {
   const service = createServiceClient()
   const { venta_ids } = await req.json() as { venta_ids: string[] }
 
+  const automatica = inscripcionAutomaticaActiva()
   const results = []
 
   for (const venta_id of venta_ids) {
+    if (!automatica) {
+      const { data: inscritosVenta } = await service
+        .from('inscritos')
+        .select('id, estado_inscripcion')
+        .eq('venta_id', venta_id)
+
+      const pendientes = (inscritosVenta ?? []).filter(
+        (i: { estado_inscripcion: string }) => i.estado_inscripcion !== 'inscrito'
+      )
+
+      if (pendientes.length > 0) {
+        await service
+          .from('inscritos')
+          .update({ estado_inscripcion: 'pendiente', mensaje_error: MARCADOR_INSCRIPCION_DESACTIVADA })
+          .in('id', pendientes.map((i: { id: string }) => i.id))
+      }
+
+      await service.from('ventas').update({
+        estado_inscripcion: 'pendiente',
+        mensaje_error: MARCADOR_INSCRIPCION_DESACTIVADA,
+      }).eq('id', venta_id)
+
+      results.push({
+        venta_id,
+        estado: 'pendiente',
+        inscripcion_automatica_desactivada: true,
+        inscritoResults: pendientes.map((i: { id: string }) => ({ id: i.id, ok: true, pendiente: true })),
+      })
+      continue
+    }
     // Load venta with program, metodo_pago, inscritos and vendedora
     const { data: venta } = await service
       .from('ventas')

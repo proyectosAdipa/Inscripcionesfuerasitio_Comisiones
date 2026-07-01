@@ -4,13 +4,15 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 
-import { Venta, Inscrito, EstadoInscrito } from '@/lib/types'
+import { Venta, Inscrito, EstadoInscrito, MARCADOR_INSCRIPCION_DESACTIVADA } from '@/lib/types'
 
 const BADGE_INSCRITO: Record<EstadoInscrito, { label: string; className: string }> = {
   pendiente: { label: 'Pendiente', className: 'bg-gray-100 text-gray-600' },
   inscrito: { label: 'Inscrito ✓', className: 'bg-green-100 text-green-700' },
   error: { label: 'Error', className: 'bg-red-100 text-red-700' },
 }
+
+const BADGE_INSCRIPCION_DESACTIVADA = { label: 'Pendiente (automático desactivado)', className: 'bg-amber-100 text-amber-700' }
 
 type VentaConJoins = Venta & {
   programas: { nombre: string } | null
@@ -49,6 +51,7 @@ export default function VentaDetallePage() {
   if (!venta) return <p className="text-red-600 text-sm">Venta no encontrada.</p>
 
   const hayErrores = venta.inscritos?.some(i => i.estado_inscripcion === 'error')
+  const inscripcionDesactivada = venta.mensaje_error === MARCADOR_INSCRIPCION_DESACTIVADA
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -56,6 +59,14 @@ export default function VentaDetallePage() {
           <Link href="/registro/historial" className="text-sm text-gray-500 hover:text-gray-800">← Historial</Link>
           <h1 className="text-xl font-semibold text-gray-900">Detalle de venta</h1>
         </div>
+
+        {inscripcionDesactivada && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <p className="text-sm text-amber-800">
+              ⚠ Inscripción automática desactivada temporalmente — la venta quedó registrada, se inscribirá cuando se active.
+            </p>
+          </div>
+        )}
 
         {/* Summary card */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3 text-sm">
@@ -125,7 +136,8 @@ export default function VentaDetallePage() {
 
           <div className="space-y-3">
             {venta.inscritos?.map(ins => {
-              const badge = BADGE_INSCRITO[ins.estado_inscripcion]
+              const insDesactivado = ins.mensaje_error === MARCADOR_INSCRIPCION_DESACTIVADA
+              const badge = insDesactivado ? BADGE_INSCRIPCION_DESACTIVADA : BADGE_INSCRITO[ins.estado_inscripcion]
               return (
                 <div key={ins.id} className="flex items-start justify-between py-2 border-b border-gray-100 last:border-0">
                   <div>
@@ -134,7 +146,7 @@ export default function VentaDetallePage() {
                     {ins.numero_pedido && (
                       <p className="text-xs text-gray-400 mt-0.5">Pedido: {ins.numero_pedido}</p>
                     )}
-                    {ins.estado_inscripcion === 'error' && ins.mensaje_error && (
+                    {ins.estado_inscripcion === 'error' && !insDesactivado && ins.mensaje_error && (
                       <p className="text-xs text-red-500 mt-0.5">{ins.mensaje_error}</p>
                     )}
                   </div>

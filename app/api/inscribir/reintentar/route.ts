@@ -1,6 +1,6 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { ENROLLMENT_URL, Pais } from '@/lib/types'
+import { ENROLLMENT_URL, Pais, MARCADOR_INSCRIPCION_DESACTIVADA, inscripcionAutomaticaActiva } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -9,6 +9,15 @@ export async function POST(req: NextRequest) {
 
   const service = createServiceClient()
   const { venta_id } = await req.json() as { venta_id: string }
+
+  if (!inscripcionAutomaticaActiva()) {
+    return NextResponse.json({
+      ok: true,
+      inscripcion_automatica_desactivada: true,
+      mensaje: 'Inscripción automática desactivada temporalmente — no hay nada que reintentar hasta que se active.',
+      inscritoResults: [],
+    })
+  }
 
   const { data: venta } = await service
     .from('ventas')

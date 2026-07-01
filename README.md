@@ -250,6 +250,15 @@ flowchart TD
 
 > Nota de proceso descartada: se evaluó enviar `total: 0` al endpoint para evitar la doble emisión de boleta en empresas, pero se descartó — el riesgo era que la factura también saliera en $0. El mecanismo correcto es el flag `es_factura` nativo de la pasarela, no manipular el monto.
 
+### 4.6 Interruptor de inscripción automática (`INSCRIPCION_AUTOMATICA`)
+
+Mientras TI ajusta la lógica del backend del sitio, **no se debe llamar al endpoint real `enrollment-offsite` bajo ninguna circunstancia** — ni para ventas individuales. La variable de entorno `INSCRIPCION_AUTOMATICA` controla esto (default `false` si no está seteada o si vale cualquier cosa distinta de `'true'`):
+
+- **`false` (estado actual)** — `/api/inscribir` y `/api/inscribir/reintentar` **no llaman** a `enrollmentUrl`. La venta y sus inscritos quedan en `estado_inscripcion = 'pendiente'`, con `mensaje_error = 'INSCRIPCION_AUTOMATICA_DESACTIVADA'` (constante `MARCADOR_INSCRIPCION_DESACTIVADA` en `lib/types.ts`) para distinguirlo de un error real. El formulario, el historial y el detalle de venta muestran un aviso claro en vez de un estado ambiguo.
+- **`true`** — funciona como antes: llama al endpoint real por país y procesa la respuesta normalmente.
+
+Para reactivar la inscripción automática, cambiar el valor en Vercel a `true` y redeploy — no requiere cambios de código.
+
 ---
 
 ## 5. Frente 3 — Cierre de ventas y comisiones

@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   let query = service
     .from('ventas')
     .select(`
-      id, origen, tipo, monto_total, fecha_venta, mes, estado_inscripcion, creado_en, numero_pedido,
+      id, origen, tipo, monto_total, fecha_venta, mes, estado_inscripcion, mensaje_error, creado_en, numero_pedido,
       programas (nombre),
       metodos_pago (label)
     `)

@@ -101,3 +101,14 @@ export const ENROLLMENT_URL: Record<Pais, string> = {
   CL: 'https://adipa.cl/api/n8n/enrollment-offsite',
   CO: 'https://adipa.co/api/n8n/enrollment-offsite',
 }
+
+/**
+ * Marcador guardado en mensaje_error (venta e inscrito) cuando la inscripción
+ * automática está desactivada (INSCRIPCION_AUTOMATICA=false). Permite al
+ * frontend distinguir este caso de un error real de enrollment-offsite.
+ */
+export const MARCADOR_INSCRIPCION_DESACTIVADA = 'INSCRIPCION_AUTOMATICA_DESACTIVADA'
+
+export function inscripcionAutomaticaActiva(): boolean {
+  return process.env.INSCRIPCION_AUTOMATICA === 'true'
+}
