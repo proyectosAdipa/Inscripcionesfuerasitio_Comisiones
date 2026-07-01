@@ -520,6 +520,7 @@ flowchart TD
 | Método | Ruta | Descripción | Protección |
 |---|---|---|---|
 | POST | `/api/sync/programas` | Recibe el listado de programas (CL/MX/CO) enviado por un flujo de n8n que consulta BigQuery; hace upsert y desactiva los que no vienen | CRON_SECRET |
+| POST | `/api/sync/defontana` | Recibe `{ id_servicio, descripcion }[]` desde n8n (hoja de Sheets de Defontana, solo aplica a CL); matchea por nombre normalizado y guarda `id_defontana`. Ambiguos o sin match quedan en `sync_log` para revisión manual | CRON_SECRET |
 | POST | `/api/sync/panel` | Sync de totales del Panel desde n8n | CRON_SECRET |
 | POST | `/api/sync/panel-detalle` | Sync del detalle del Panel + rellena boletas | CRON_SECRET |
 | POST | `/api/sync/forzar` | Actualización inmediata del Panel | Auth |
