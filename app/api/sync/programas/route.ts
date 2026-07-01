@@ -1,23 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { Pais } from '@/lib/types'
+import { normalizarPais } from '@/lib/pais'
 
 interface FilaPrograma {
   product_id: string
   product_name: string
   seller_name: string
   pais: string
-}
-
-const PAIS_MAP: Record<string, Pais> = {
-  chile: 'CL',
-  méxico: 'MX',
-  mexico: 'MX',
-  colombia: 'CO',
-}
-
-function normalizarPais(valor: string): Pais | null {
-  return PAIS_MAP[valor.trim().toLowerCase()] ?? null
 }
 
 const TIPOS_POR_PALABRA_CLAVE: [string, string][] = [

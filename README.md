@@ -478,8 +478,8 @@ flowchart TD
 | `/reinscripciones` | Formulario de nueva reinscripción | SAC, Admin |
 | `/reinscripciones/historial` | Reinscripciones registradas | SAC, Admin |
 | `/venta/[id]` | Detalle de una venta con sus inscritos | Según permiso |
-| `/precuadratura` | Tabla principal del cierre | Cierre, Admin |
-| `/precuadratura/[vendedora]` | Drill-down comparativo y correcciones | Cierre, Admin |
+| `/precuadratura` | Tabla principal del cierre: monto App vs Panel, Δ, cantidad de ventas y canceladas por vendedora, agrupado por país. Incluye grupo aparte para SAC (no atribuidas) | Cierre, Admin |
+| `/precuadratura/[vendedora]` | Drill-down venta por venta de una vendedora (o `sac` para las no atribuidas), con la clasificación de cada una (Cuadra / Descuadre de monto / Solo en un lado / Cancelada). Las correcciones manuales (edición de monto, enlace manual, marcar revisado) quedan pendientes para una siguiente etapa | Cierre, Admin |
 | `/cuadratura-defontana` | Segunda etapa de cuadratura | Cierre, Admin |
 | `/comisiones` | Cálculo de comisión por vendedora | Admin |
 | `/archivo/[mes]` | Vista de un mes archivado (snapshot) | Cierre, Admin |
@@ -506,9 +506,8 @@ flowchart TD
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/api/precuadratura` | Tabla principal por vendedora y mes |
-| GET | `/api/vendedora/ventas` | Detalle comparativo de una vendedora |
-| GET | `/api/vendedora/descuadres` | Descuadres de una vendedora |
+| GET | `/api/precuadratura?mes=YYYY-MM` | Agrupa por país → vendedora: monto App vs monto Panel (detalle, `wc-completed`), Δ, cantidad de ventas, canceladas, estado (Cuadra/Descuadra) y aviso de integridad resumen-vs-detalle si aplica. Incluye grupo SAC aparte |
+| GET | `/api/vendedora/[id]/ventas?mes=YYYY-MM` | Detalle venta por venta de una vendedora (`[id]` = UUID) o de las no atribuidas (`[id]` = `sac`), cada una clasificada. El descuadre por vendedora ya viene incluido acá y en `/api/precuadratura` — no hay endpoint separado |
 | POST | `/api/corregir` | Edición de monto, enlace manual o marcar revisado |
 | GET | `/api/comisiones` | Cálculo de comisiones (solo Admin) |
 | GET | `/api/cuadratura-defontana` | Cuadratura de programas mayores contra Defontana (por definir — pendiente, distinto de la carga de `id_defontana` ya implementada en `/configuracion`) |
@@ -523,11 +522,80 @@ flowchart TD
 | POST | `/api/configuracion/defontana/upload` | Carga manual del Excel de Defontana desde `/configuracion` (columnas "ID Servicio" y "Descripción", parseado con `exceljs`). Misma lógica de matching que `/api/sync/defontana`; devuelve el resultado directo a la UI en vez de solo loguearlo | Sesión (rol Cierre/Admin) |
 | GET | `/api/configuracion/defontana/pendientes` | Lista, agrupados por nombre normalizado, los programas activos de Chile que aún no tienen `id_defontana` | Sesión (rol Cierre/Admin) |
 | POST | `/api/configuracion/defontana/asignar` | Asigna manualmente un `id_defontana` a un grupo de programas (todas las filas de Chile con ese nombre). Usado tanto por la lista de pendientes como al resolver un caso ambiguo eligiendo el candidato correcto | Sesión (rol Cierre/Admin) |
-| POST | `/api/sync/panel` | Sync de totales del Panel desde n8n | CRON_SECRET |
-| POST | `/api/sync/panel-detalle` | Sync del detalle del Panel + rellena boletas | CRON_SECRET |
+| POST | `/api/sync/panel` | Recibe totales por vendedora/mes/país (`ventas_sw_monto`, `ventas_sw_auto_monto`, `ventas_sw_no_auto_monto`, y sus cantidades) enviados por n8n; upsert en `ventas_panel` por `(vendedora, mes, pais)` | CRON_SECRET |
+| POST | `/api/sync/panel-detalle` | Recibe el detalle venta por venta (fuera de sitio, `SW_Auto`/`SW_no_auto`) enviado por n8n; upsert en `ventas_panel_detalle` por `numero_orden`. Efectos secundarios: rellena `ventas.numero_boleta` desde `voucher`, y marca `ventas.estado_inscripcion = 'cancelado'` cuando `ultimo_estado = 'wc-cancelled'` | CRON_SECRET |
 | POST | `/api/sync/forzar` | Actualización inmediata del Panel | Auth |
 | GET/POST | `/api/ciclos/rotar` | Rotación de mes + genera snapshot + respalda PDFs | CRON_SECRET |
 | GET | `/api/programas` | Listado de programas por vendedora | Auth |
+
+### 10.1 Queries de BigQuery para el sync del Panel (configurar en n8n)
+
+Las 3 categorías del Panel son independientes entre sí:
+- **`ventas_sw_monto`** (`Type_sold = 'SW'`) — vendido *dentro* del sitio, automático, no pasa por esta app. Se guarda para comisiones futuras; **no se usa en ningún cálculo de la precuadratura**.
+- **`ventas_sw_auto_monto` + `ventas_sw_no_auto_monto`** (`SW_Auto` / `SW_no_auto`) — vendido *fuera* del sitio, ingresado vía esta app e inscrito por `enrollment-offsite`. Es lo único que se compara contra `ventas`.
+
+**Query de totales** (para `/api/sync/panel`, ya filtrada a `wc-completed` — es un resumen):
+
+```sql
+SELECT 
+  Seller_name,
+  FORMAT_DATE('%Y-%m', Fecha) as mes,
+  Pais,
+  SUM(CASE WHEN Type_sold = 'SW' THEN Total_cash ELSE 0 END) as ventas_sw_monto,
+  COUNT(CASE WHEN Type_sold = 'SW' THEN 1 END) as ventas_sw_cantidad,
+  SUM(CASE WHEN Type_sold = 'SW_Auto' THEN Total_cash ELSE 0 END) as ventas_sw_auto_monto,
+  COUNT(CASE WHEN Type_sold = 'SW_Auto' THEN 1 END) as ventas_sw_auto_cantidad,
+  SUM(CASE WHEN Type_sold = 'SW_no_auto' THEN Total_cash ELSE 0 END) as ventas_sw_no_auto_monto,
+  COUNT(CASE WHEN Type_sold = 'SW_no_auto' THEN 1 END) as ventas_sw_no_auto_cantidad
+FROM `adipa-cl-331013.desarrollo_pruebas_adipa.ventas_producto_resumen_panel_v5`
+WHERE Fecha >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), MONTH)
+  AND Seller_name IS NOT NULL
+  AND Type_sold IN ('SW', 'SW_Auto', 'SW_no_auto')
+  AND Total_cash > 0
+  AND Status_oc = 'wc-completed'
+GROUP BY Seller_name, mes, Pais
+ORDER BY Seller_name, mes
+```
+
+**Query de detalle** (para `/api/sync/panel-detalle`, **sin** filtro de `Status_oc` — trae completadas y canceladas, necesario para detectar cancelaciones posteriores; ya viene limitada a `SW_Auto`/`SW_no_auto`, coherente con lo que se compara contra `ventas`):
+
+```sql
+SELECT
+  Seller_name as vendedora,
+  FORMAT_DATE('%Y-%m', MIN(Fecha)) as mes,
+  CAST(Product_id AS STRING) as wp_post_id,
+  Name_item as programa,
+  CAST(Id_oc AS STRING) as numero_orden,
+  SUM(Total_cash) as monto,
+  COUNT(*) as num_lotes,
+  CASE 
+    WHEN Type_sold = 'SW_Auto' THEN 'sw_auto'
+    WHEN Type_sold = 'SW_no_auto' THEN 'sw_no_auto'
+  END as categoria,
+  MAX(Cust_email) as correo_cliente,
+  MAX(Cust_first_name) as nombre_cliente,
+  MAX(Cust_last_name) as apellido_cliente,
+  MAX(Cust_phone) as telefono,
+  MAX(Voucher_defontana) as voucher,
+  MAX(Status_oc) as ultimo_estado,
+  CAST(MIN(Fecha) AS STRING) as fecha,
+  Pais as pais
+FROM `adipa-cl-331013.desarrollo_pruebas_adipa.ventas_producto_resumen_panel_v5`
+WHERE Fecha >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), MONTH)
+  AND Seller_name IS NOT NULL
+  AND Type_sold IN ('SW_Auto', 'SW_no_auto')
+  AND Total_cash > 0
+GROUP BY 
+  Seller_name, Product_id, Name_item, Type_sold, 
+  Id_oc, Pais, Total_cash
+ORDER BY Seller_name, fecha DESC
+```
+
+> El campo `telefono` viaja en el JSON de detalle pero **no se persiste** — `ventas_panel_detalle` no tiene esa columna.
+
+### 10.2 Validación de integridad (resumen vs. detalle)
+
+Por cada `(vendedora, mes)`, `/api/precuadratura` compara `ventas_panel.sw_auto_monto + ventas_panel.sw_no_auto_monto` (resumen) contra la suma de `ventas_panel_detalle.monto` filtrado por `ultimo_estado = 'wc-completed'` (detalle). Si difieren, se muestra un aviso visible en la fila de esa vendedora (ej. *"⚠ Panel resumen y detalle no coinciden: diferencia $X"*) — no bloquea nada, es solo una alerta de integridad del sync. El monto usado para el Δ contra `ventas` es siempre el del **detalle**, no el del resumen.
 
 ---
 
