@@ -519,6 +519,7 @@ flowchart TD
 
 | Método | Ruta | Descripción | Protección |
 |---|---|---|---|
+| GET/POST | `/api/sync/programas` | Sync de programas desde BigQuery (CL/MX/CO), directo desde código, cada 5 días | CRON_SECRET |
 | POST | `/api/sync/panel` | Sync de totales del Panel desde n8n | CRON_SECRET |
 | POST | `/api/sync/panel-detalle` | Sync del detalle del Panel + rellena boletas | CRON_SECRET |
 | POST | `/api/sync/forzar` | Actualización inmediata del Panel | Auth |
