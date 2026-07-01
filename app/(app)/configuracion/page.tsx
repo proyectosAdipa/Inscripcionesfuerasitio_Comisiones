@@ -10,6 +10,12 @@ interface ResultadoDefontana {
   sin_match: { id_servicio: string; descripcion: string }[]
 }
 
+interface ProgramaPendiente {
+  nombre: string
+  ids: string[]
+  wp_post_ids: string[]
+}
+
 export default function ConfiguracionPage() {
   const [rol, setRol] = useState<string | null>(null)
   const [loadingRol, setLoadingRol] = useState(true)
@@ -18,10 +24,24 @@ export default function ConfiguracionPage() {
   const [resultado, setResultado] = useState<ResultadoDefontana | null>(null)
   const [error, setError] = useState('')
 
+  const [pendientes, setPendientes] = useState<ProgramaPendiente[]>([])
+  const [loadingPendientes, setLoadingPendientes] = useState(true)
+  const [valores, setValores] = useState<Record<string, string>>({})
+  const [guardando, setGuardando] = useState<string | null>(null)
+
+  async function cargarPendientes() {
+    setLoadingPendientes(true)
+    const res = await fetch('/api/configuracion/defontana/pendientes')
+    const data = await res.json()
+    setPendientes(data.pendientes ?? [])
+    setLoadingPendientes(false)
+  }
+
   useEffect(() => {
     fetch('/api/me/vendedora')
       .then(r => r.json())
       .then(data => { setRol(data.rol ?? null); setLoadingRol(false) })
+    cargarPendientes()
   }, [])
 
   async function handleUpload(e: React.FormEvent) {
@@ -40,10 +60,33 @@ export default function ConfiguracionPage() {
       if (!res.ok) throw new Error(data.error ?? 'Error al procesar el archivo')
       setResultado(data.detalle)
       setArchivo(null)
+      await cargarPendientes()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error desconocido')
     } finally {
       setSubiendo(false)
+    }
+  }
+
+  async function handleAsignar(grupo: ProgramaPendiente) {
+    const valor = (valores[grupo.nombre] ?? '').trim()
+    if (!valor) return
+
+    setGuardando(grupo.nombre)
+    try {
+      const res = await fetch('/api/configuracion/defontana/asignar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: grupo.ids, id_defontana: valor }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Error al guardar')
+
+      // Quitar el grupo de la lista localmente, sin esperar un refetch completo
+      setPendientes(prev => prev.filter(p => p.nombre !== grupo.nombre))
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setGuardando(null)
     }
   }
 
@@ -136,6 +179,49 @@ export default function ConfiguracionPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Programas de Chile sin ID de Defontana</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Al asignar un ID acá se aplica a este curso y a cualquier otra fila de Chile con el mismo nombre
+            (mismo curso vendido por otra vendedora). Una vez guardado, desaparece de esta lista.
+          </p>
+        </div>
+
+        {loadingPendientes ? (
+          <p className="text-sm text-gray-400">Cargando…</p>
+        ) : pendientes.length === 0 ? (
+          <p className="text-sm text-gray-400">No quedan programas de Chile sin ID de Defontana.</p>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {pendientes.map(grupo => (
+              <div key={grupo.nombre} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-800 truncate">{grupo.nombre}</p>
+                  {grupo.ids.length > 1 && (
+                    <p className="text-xs text-gray-400">{grupo.ids.length} vendedoras venden este curso</p>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  placeholder="ID Defontana"
+                  value={valores[grupo.nombre] ?? ''}
+                  onChange={e => setValores(prev => ({ ...prev, [grupo.nombre]: e.target.value }))}
+                  className="w-32 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+                <button
+                  onClick={() => handleAsignar(grupo)}
+                  disabled={!(valores[grupo.nombre] ?? '').trim() || guardando === grupo.nombre}
+                  className="text-xs bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 rounded-lg font-medium transition disabled:opacity-50 whitespace-nowrap"
+                >
+                  {guardando === grupo.nombre ? 'Guardando…' : 'Guardar'}
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
