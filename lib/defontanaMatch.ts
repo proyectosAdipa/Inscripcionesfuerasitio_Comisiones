@@ -47,7 +47,11 @@ export async function ejecutarSyncDefontana(filas: FilaDefontana[], origen: 'n8n
   }))
 
   let actualizados = 0
-  const ambiguos: { id_servicio: string; descripcion: string; candidatos: string[] }[] = []
+  const ambiguos: {
+    id_servicio: string
+    descripcion: string
+    candidatos: { nombre: string; ids: string[] }[]
+  }[] = []
   const sinMatch: { id_servicio: string; descripcion: string }[] = []
 
   for (const fila of filas) {
@@ -67,10 +71,17 @@ export async function ejecutarSyncDefontana(filas: FilaDefontana[], origen: 'n8n
     // Si hay más de un NOMBRE distinto entre los candidatos, es ambiguo (podrían ser cursos distintos)
     const nombresUnicos = new Set(candidatos.map(c => c.nombreNormalizado))
     if (nombresUnicos.size > 1) {
+      const candidatosPorNombre = new Map<string, { nombre: string; ids: string[] }>()
+      for (const c of candidatos) {
+        if (!candidatosPorNombre.has(c.nombreNormalizado)) {
+          candidatosPorNombre.set(c.nombreNormalizado, { nombre: c.nombre, ids: [] })
+        }
+        candidatosPorNombre.get(c.nombreNormalizado)!.ids.push(c.id)
+      }
       ambiguos.push({
         id_servicio: fila.id_servicio,
         descripcion: fila.descripcion,
-        candidatos: candidatos.map(c => c.nombre),
+        candidatos: Array.from(candidatosPorNombre.values()),
       })
       continue
     }

@@ -2,11 +2,22 @@
 
 import { useEffect, useState } from 'react'
 
+interface Candidato {
+  nombre: string
+  ids: string[]
+}
+
+interface Ambiguo {
+  id_servicio: string
+  descripcion: string
+  candidatos: Candidato[]
+}
+
 interface ResultadoDefontana {
   origen: string
   total_filas_hoja: number
   programas_actualizados: number
-  ambiguos: { id_servicio: string; descripcion: string; candidatos: string[] }[]
+  ambiguos: Ambiguo[]
   sin_match: { id_servicio: string; descripcion: string }[]
 }
 
@@ -23,6 +34,7 @@ export default function ConfiguracionPage() {
   const [subiendo, setSubiendo] = useState(false)
   const [resultado, setResultado] = useState<ResultadoDefontana | null>(null)
   const [error, setError] = useState('')
+  const [resolviendo, setResolviendo] = useState<string | null>(null)
 
   const [pendientes, setPendientes] = useState<ProgramaPendiente[]>([])
   const [loadingPendientes, setLoadingPendientes] = useState(true)
@@ -87,6 +99,30 @@ export default function ConfiguracionPage() {
       setError(err instanceof Error ? err.message : 'Error desconocido')
     } finally {
       setGuardando(null)
+    }
+  }
+
+  async function handleResolverAmbiguo(ambiguo: Ambiguo, candidato: Candidato) {
+    const clave = ambiguo.id_servicio
+    setResolviendo(clave)
+    try {
+      const res = await fetch('/api/configuracion/defontana/asignar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: candidato.ids, id_defontana: ambiguo.id_servicio }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Error al guardar')
+
+      // Quitar este ambiguo de la lista, y refrescar pendientes (el candidato elegido ya no debería aparecer ahí)
+      setResultado(prev => prev
+        ? { ...prev, ambiguos: prev.ambiguos.filter(a => a.id_servicio !== ambiguo.id_servicio) }
+        : prev
+      )
+      await cargarPendientes()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error desconocido')
+    } finally {
+      setResolviendo(null)
     }
   }
 
@@ -155,12 +191,25 @@ export default function ConfiguracionPage() {
 
             {resultado.ambiguos.length > 0 && (
               <div>
-                <p className="text-xs font-medium text-amber-700 mb-1.5">Ambiguos (más de un programa posible)</p>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                  {resultado.ambiguos.map((a, i) => (
-                    <div key={i} className="bg-amber-50 rounded-lg px-3 py-2 text-xs">
+                <p className="text-xs font-medium text-amber-700 mb-1.5">
+                  Ambiguos — elige a cuál programa corresponde
+                </p>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {resultado.ambiguos.map((a) => (
+                    <div key={a.id_servicio} className="bg-amber-50 rounded-lg px-3 py-2 text-xs space-y-1.5">
                       <p className="font-medium text-gray-800">{a.id_servicio} — {a.descripcion}</p>
-                      <p className="text-gray-500 mt-0.5">Candidatos: {a.candidatos.join(' · ')}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {a.candidatos.map(c => (
+                          <button
+                            key={c.nombre}
+                            onClick={() => handleResolverAmbiguo(a, c)}
+                            disabled={resolviendo === a.id_servicio}
+                            className="bg-white border border-amber-300 hover:bg-amber-100 text-gray-700 px-2 py-1 rounded-md transition disabled:opacity-50 text-left"
+                          >
+                            {resolviendo === a.id_servicio ? 'Guardando…' : c.nombre}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
